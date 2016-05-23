@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+
+@import "compass/css3"; 
+
+svg {
+    font: 10px sans-serif; 
+    cursor: default;
+}
+
+.line path {
+    fill: none;
+    stroke-width: 1.5px;
+    clip-path: url(#clip);
+}
+
+.axis path,
+.axis line {
+    fill: none;
+    stroke: #000;
+    shape-rendering: crispEdges;
+}
+
+.brush .extent {
+    stroke: #fff;
+    fill-opacity: .125;
+    shape-rendering: crispEdges;
+}
+
+.tooltipLine path {
+    stroke-width: 1px; 
+    stroke: #000; 
+    shape-rendering: crispEdges; 
+}
+ 
+.tooltipLine text {
+    stroke-width: 1px; 
+    fill: #000; 
+    shape-rendering: crispEdges; 
+}   
+
+.grid .tick {
+    stroke: lightgrey;
+    stroke-opacity: 0.7;
+    shape-rendering: crispEdges;
+}
+
+.grid path {
+    stroke-width: 0;
+} 
+
+label.deviceLegend {
+    font-size: 12px;
+}
+
+div.deviceLegend {
+    width: 88%;
+    display: inline-block;   
+    color: #555555;  
+}
+
+div.deviceValue {
+    vertical-align: 50%;
+    font-size: 16px; 
+    display: inline-block; 
+    color: #555555;   
+}
+
+label {
+    display: inline-block;  
+}
+
+input.check[type="checkbox"]:not(:checked),
+input.check[type="checkbox"]:checked {
+  position: absolute;
+} 
+
+input.check[type="checkbox"]:not(:checked) + label,
+input.check[type="checkbox"]:checked + label {
+  position: relative;
+  padding-left: 25px;
+  padding-top: 2px;
+  cursor: pointer;
+}
+
+input.check[type="checkbox"]:not(:checked) + label:before,
+input.check[type="checkbox"]:checked + label:before {
+  content: '';
+  position: absolute;
+  left: 2px; 
+  top: 6px;
+  width: 17px; 
+  height: 17px;
+  border: 1px solid #555;
+  border-radius: 6px; 
+} 
+
+input.check[type="checkbox"]:not(:checked) + label:after,
+input.check[type="checkbox"]:checked + label:after {
+  content: '✔';
+  position: absolute;
+  top: 10px; 
+  left: 6px;
+  font-size: 16px;
+  line-height: 0.8;
+  color: #555;
+  transition: all .2s;
+} 
+
+input.check[type="checkbox"]:not(:checked) + label:after {
+  opacity: 0;
+  transform: scale(0);
+}
+input.check[type="checkbox"]:checked + label:after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+label:hover:before {
+  border: 1px solid rgba(236, 193, 82, 0.8)!important;
+        outline: 0;
+    outline: thin dotted 8;
+    -webkit-box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 8px rgba(236, 193, 82, 0.6);
+    -moz-box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 8px rgba(236, 193, 82, 0.6);
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075), 0 0 8px rgba(236, 193, 82, 0.6);
+}
+
+.deviceLegend table {
+    line-height: 0.65;
+} 
+
+.htmlCircle{
+    border-radius: 50%;
+    behavior: url(PIE.htc); /* remove if you don't care about IE8 */
+    width: 10px;
+    height: 10px;
+}
+
+</style>
+<body> 
+
+<div id = "charging-sessions-chart"> </div>    
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script> 
+
+
+
+var filter=true;
+var filterDate= new Date(2015,1,1);
+ 
+d3.json("http://atlas-staging.soofa.io/benches.json?user_token=oTriPV8kaDXaWr2VQzwKCc7LNZe8csUv&user_id=1", function(jsondata) {
+  var chargingOnly = jsondata.array.filter(function(entry) {
+    return entry.available_series && entry.available_series.indexOf('charging_sessions') > -1;
+  });
+
+  var links = chargingOnly.map(function(series) {
+    return {url: "http://atlas-staging.soofa.io/benches/" + series.id + "/series.json?user_token=oTriPV8kaDXaWr2VQzwKCc7LNZe8csUv&user_id=1&type=charging_sessions&interval=week",id: series.id, label: series.name, location_notes: series.location_notes};
+  });
+
+
+  var devices = [];
+  //deviceIds, important for the visualization
+  var deviceIds = [];
+  //count how many links succeded to be able to call visualize at the right time
+  var linksDone = 0;
+
+  links.forEach(function(device,index) {
+    //prefix for the device id
+    var prefix= "device ";
+
+
+    deviceIds.push(device.id);
+
+    d3.json(device.url, function(error, data) {
+      if (error) return console.warn(error);
+      var newDevice = {
+        id: device.id,
+        label: prefix+device.label,
+        values:[], 
+        location_notes: device.location_notes 
+      };
+
+      //push every element of data.series to the dataArray
+      data.series.forEach(function(el){
+        //creating a date object from the timestamp and converting it to an iso string
+        var ts = +el.range;
+        var date= new Date(ts*1000);
+
+        if(!(date<filterDate && filter)){
+
+          //converting the date to a string
+          var dateValuePair = {
+            date: date,
+            value: el.sessions          };
+          newDevice.values.push(dateValuePair);
+        }
+      });
+      //keeping the id for easiert sorting
+      devices.push({id: device.id, device: newDevice});
+
+      //and check if this was the last link which succeeded
+      linksDone++;
+      if(linksDone==links.length) visualize(devices, deviceIds);
+    });
+  });
+});
+
+var sortIt = function(data){
+  ret=[];
+  data.forEach(function(d){
+    d.values = d.values.sort(function(a,b){
+     return a.date.getTime()>=b.date.getTime() || -1;
+    });
+    ret.push(d);
+  });
+  return ret;
+};
+
+var visualize = function(benches, deviceIds){
+  //sorting
+  benches = benches.sort(function(a,b){
+    return (a.id >= b.id) || -1;
+  });
+
+
+  //removing ids
+benches = benches.map(function(d){return d.device;});
+
+benches = sortIt(benches); 
+
+
+
+lineData = benches.map(function(v) { return v.values} ); 
+
+var lineAttributes = benches.map(function(v) { return { 'legend' : v.label, 'show': 1, 'location' : v.location_notes }; } );  
+
+var fullWidth = 1000; 
+var fullHeight = 500; 
+var chartWidth = 650; 
+var chartHeight = 380; 
+var subchartHeight = 50; 
+var topMargin = 20; 
+var leftMargin = 50; 
+var bottomMargin = 20; 
+var legendTop = 10; 
+var legendLeft = 16;  
+
+var margin = {top: topMargin, right: (fullWidth - leftMargin - chartWidth), bottom: (fullHeight - topMargin - chartHeight), left: leftMargin},
+    margin2 = {top: (fullHeight - subchartHeight - bottomMargin), right: (fullWidth - leftMargin - chartWidth), bottom: bottomMargin, left: leftMargin},
+    width = chartWidth, 
+    height = chartHeight,
+    height2 = subchartHeight; 
+
+/*
+var margin = {top: 20, right: 360, bottom: 100, left: 50},
+    margin2 = {top: 430, right: 360, bottom: 20, left: 50},
+    width = 1060 - margin.left - margin.right,
+    height = 500 - margin.top - margin.bottom,
+    height2 = 500 - margin2.top - margin2.bottom; 
+*/
+    
+var x = d3.time.scale().range([0, width]),
+    x2 = d3.time.scale().range([0, width]),
+    y = d3.scale.linear().range([height, 6]),
+    y2 = d3.scale.linear().range([height2, 2]);
+
+var xAxis = d3.svg.axis().scale(x).orient("bottom"),
+    xAxis2 = d3.svg.axis().scale(x2).orient("bottom"),
+    yAxis = d3.svg.axis().scale(y).orient("left");
+
+var transitionDuration = 1000; 
+
+var brush = d3.svg.brush()
+    .x(x2)
+    .on("brush", brushed);
+
+var focusLine = d3.svg.line()
+    .interpolate('monotone')
+    .x(function(d) { return x(d.date); })
+    .y(function(d) { return y(d.value); }); 
+
+var contextLine = d3.svg.line()
+    .interpolate('monotone')
+    .x(function(d) { return x2(d.date); })
+    .y(function(d) { return y2(d.value); }); 
+
+var svg = d3.select("#charging-sessions-chart").append("svg")
+//var svg = d3.select("body").append("svg")
+    .attr('xml:space', 'preserve')
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom); 
+
+svg.append("defs").append("clipPath")
+    .attr("id", "clip")
+    .append("rect")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", width)
+    .attr("height", height);
+
+var focus = svg.append("g")
+    .attr("class", "focus")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+var legend = svg.append("g")
+    .attr("class", "legend")
+    .attr("transform", "translate(" + (margin.left + width + legendLeft) + "," + (margin.top + legendTop) + ")");
+
+var context = svg.append("g")
+    .attr("class", "context")
+    .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+
+focus.append('g').append("rect")
+    .attr("class", "overlay")
+    .attr("width", width)
+    .attr("height", height)
+    .style('opacity', 0)
+    .on("mouseenter", mouseenter)
+    .on("mouseout", mouseout)
+    .on("mousemove", mousemove);
+
+var color = d3.scale.category10();   
+
+
+// Function for the x grid lines
+function make_x_axis() {
+    return d3.svg.axis()
+        .scale(x)
+        .orient("bottom")
+        .ticks(5);
+}
+
+// Function for the y grid lines
+function make_y_axis() {
+    return d3.svg.axis()
+        .scale(y)
+        .orient("left")
+        .ticks(5);
+}
+
+focus.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height + ")")
+      .call(xAxis);
+
+focus.append("g")
+      .attr("class", "y axis")
+      .call(yAxis)
+      .append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 6)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end");
+
+function renderAxisX(transitionDuration) {
+    
+    transitionDuration = typeof transitionDuration !== 'undefined' ?  transitionDuration : 0;   
+
+    if (focus.select('.x.axis').empty()) {
+        focus.append("g")
+            .attr("class", "x axis");
+    }
+  
+    if (transitionDuration > 0) {
+        focus.select('.x.axis')
+            .attr("transform", "translate(0," + height + ")")
+            .transition()
+            .duration(transitionDuration)
+            .call(xAxis); 
+    } else {
+        focus.select('.x.axis')
+            .attr("transform", "translate(0," + height + ")")
+            .call(xAxis); 
+    }
+} 
+
+function renderAxisX2(transitionDuration) {
+    
+    transitionDuration = typeof transitionDuration !== 'undefined' ?  transitionDuration : 0;   
+
+    if (context.select('.x.axis').empty()) {
+        context.append("g")
+            .attr("class", "x axis");
+    }
+  
+    if (transitionDuration > 0) {
+        context.select('.x.axis')
+            .attr("transform", "translate(0," + height2 + ")")
+            .transition()
+            .duration(transitionDuration)
+            .call(xAxis); 
+    } else {
+        context.select('.x.axis')
+            .attr("transform", "translate(0," + height2 + ")")
+            .call(xAxis); 
+    }
+} 
+
+function renderAxisY(transitionDuration) {
+    
+    transitionDuration = typeof transitionDuration !== 'undefined' ?  transitionDuration : 0;   
+
+    if (focus.select('.y.axis').empty()) {
+        focus.append("g")
+            .attr("class", "y axis");
+    }
+  
+    if (transitionDuration > 0) {
+        focus.select('.y.axis')
+            .transition()
+            .duration(transitionDuration)
+            .call(yAxis); 
+    } else {
+        focus.select('.y.axis')
+            .call(yAxis); 
+    }
+} 
+
+function renderGrid(transitionDuration) {
+    
+    transitionDuration = typeof transitionDuration !== 'undefined' ?  transitionDuration : 0;   
+
+    if (d3.select('.grid').empty()) {     //
+    focus.append("g")
+        .attr("class", "grid")
+        .attr("transform", "translate(0," + height + ")")
+        .call(make_x_axis()
+            .tickSize(-height, 0, 0)
+            .tickFormat("")
+        );
+    focus.append("g")
+        .attr("class", "grid")
+        .call(make_y_axis()
+            .tickSize(-width, 0, 0)
+            .tickFormat("")
+        );
+    }                                       //
+} 
+
+
+
+
+
+
+
+
+var textScale = d3.scale
+    .linear()
+    .domain([0,lineAttributes.length])
+    .range([0,height]);
+
+var legends = legend.selectAll('.deviceLegend')
+    .data(lineAttributes)
+    .enter()
+    .append('g')
+    .attr('class', '.deviceLegend')
+    .attr('transform', function(v, i) {return 'translate(0 ,' + textScale(i * 0.55) + ')'; })
+        .on('click', function(v, i) {
+            lineAttributes[i].show = (lineAttributes[i].show == 1) ? 0 : 1; 
+            if (lineAttributes[i].show == 1) {
+                focus.select('g.line'+i).transition().duration(transitionDuration).style('opacity', 1); 
+                context.select('g.line'+i).transition().duration(transitionDuration).style('opacity', 1); 
+                drawChart(transitionDuration);   
+                d3.select(this).select('.fill').transition().duration(transitionDuration).style('opacity', 1); 
+                legends.select('.deviceValue'+i).classed('show', true);    
+            } else {
+                focus.select('g.line'+i).transition().duration(transitionDuration).style('opacity', 0); 
+                context.select('g.line'+i).transition().duration(transitionDuration).style('opacity', 0);
+                drawChart(transitionDuration);   
+                d3.select(this).select('.fill').transition().duration(transitionDuration).style('opacity', 0);    
+                legends.select('.deviceValue'+i).classed('show', false);                          
+            }
+        })
+        .on('mouseover', function(v, i) {        
+            d3.select(this).select('.select').style('opacity', 0.26); 
+        })
+        .on('mouseout', function(v, i) {        
+            d3.select(this).select('.select').style('opacity', 0);            
+        }); 
+
+legends        
+    .append('circle')
+    .attr('class', 'select')
+    .attr('cx', 0)
+    .attr('cy', 0)
+    .attr('r', 10)
+    .style('fill', function(v, i) { return color(i); })
+    .style('opacity', 0); 
+
+legends        
+    .append('circle')
+    .attr('cx', 0)
+    .attr('cy', 0)
+    .attr('r', 6)
+    .style('stroke', function(v, i) { return color(i); })
+    .style('fill', 'none'); 
+    
+legends        
+    .append('circle')
+    .attr('class', 'fill')
+    .attr('cx', 0)
+    .attr('cy', 0)
+    .attr('r', 6)
+    .style('fill', function(v, i) { return color(i); })
+    .style('opacity', 1); 
+
+legends         
+    .append('text')
+    .attr('transform', 'translate(20, -2)')
+    .style('font-size', '12px')
+    .style('fill', '#444444')
+    .text(function(v) {
+        return 'Device:     ' + v.legend; 
+    }); 
+    
+
+legends         
+    .append('text')
+    .attr('transform', 'translate(20, 10)') 
+    .style('font-size', '12px')
+    .style('fill', '#444444')
+    .text(function(v) {
+        return 'Location:  ' +  v.location; 
+    });
+
+legends         
+    .append('g')
+    .attr('transform', 'translate(198, 6)') 
+    .attr('class', function(v,i) { return 'show deviceValue deviceValue' + i ; })
+    .append('text')
+    .attr('class', 'value')
+    .style('font-size', '16px')
+    .style('text-anchor', 'end')
+    .style('fill', '#555555'); 
+    
+var chartData = lineData; // This can be used to filter some of the lines out   
+
+drawChart();
+renderAxisX(); 
+renderAxisX2();
+renderAxisY(); 
+renderGrid(); 
+renderLines('focus');
+
+function drawChart(transitionDuration) {
+    
+    transitionDuration = typeof transitionDuration !== 'undefined' ?  transitionDuration : 0;  
+    
+    svg = d3.selectAll('svg').data([chartData]);
+
+    var brush_extent = brush.extent(); 
+    
+    updateScales(); 
+
+    brush_extent[1] = d3.min([brush_extent[1], x.domain()[1]]); // Recalculate brush extent on line show / hide 
+    brush_extent[0] = d3.max([brush_extent[0], x.domain()[0]]); 
+
+    if ((brush_extent[1] < brush_extent[0]) && (! brush.empty())) { // If the only line located within limits of the brush is deleted  
+        brush.clear(); 
+    }
+
+    renderBrush();
+    renderAxisY(transitionDuration); 
+    renderAxisX2(transitionDuration);
+
+    if (! brush.empty()) {
+        x.domain(brush_extent);
+        brush.extent(brush_extent);
+    };
+
+    context.select('.x.brush').transition().duration(transitionDuration).call(brush);
+    focus.selectAll(".line").select('path').transition().duration(transitionDuration).attr("d", focusLine); 
+    context.selectAll(".line").select('path').transition().duration(transitionDuration).attr("d", contextLine); // Redraw context lines if context x axis domain changes on line show / hide  
+    renderAxisX(transitionDuration); 
+
+}
+
+function updateScales() {
+    var visibleLines = chartData.filter(function(v, i) { return lineAttributes[i].show == 1}); 
+    // Get min and max of all dates for all the lines 
+    
+    x.domain([
+        d3.min(visibleLines, function(line) {
+            return d3.min(line, function(d) {
+                return d.date;
+            })
+        }),
+    d3.max(visibleLines, function(line) {
+        return d3.max(line, function(d) {
+                return d.date;
+            })
+        })
+    ]);
+
+  // Get 0 and max of all values for all the lines 
+    y.domain([
+        0,
+            d3.max(visibleLines, function(line) {
+                return d3.max(line, function(d) {
+                    return d.value;
+                })
+            })
+        ]);
+    x2.domain(x.domain());
+    y2.domain(y.domain());
+}
+
+// Chart can be either 'focus' or 'context' 
+function renderLines(chart) {
+    if (chart == 'context') {
+        var chartElement = context;
+        var chartLine = contextLine;
+    } else {
+        var chartElement = focus;
+        var chartLine = focusLine;
+    }
+
+    var line = chartElement.selectAll('.line') 
+       .data(chartData)
+       .enter()
+       .append('g')
+       .attr('class', function(v, i) { return ('line line'+i); })
+       .attr('clip-path','url(#clip)')
+       .append('path')
+       .style('stroke', function(v, i) { return color(i); });  
+
+    line.attr('d', function(d) { return chartLine(d); }); 
+} 
+
+function renderBrush() {
+    if (d3.select('g.brush').empty()) {
+        renderLines('context');
+        context.append("g")
+            .attr("class", "x brush")
+            .call(brush)
+            .selectAll("rect")
+            .attr("y", -6)
+            .attr("height", height2 + 8);
+    } else {
+        renderLines('context');
+    };
+}
+
+function brushed() {
+    x.domain(brush.empty() ? x2.domain() : brush.extent());
+    focus.selectAll(".line").select('path').attr("d", focusLine); 
+    focus.select(".x.axis").call(xAxis); 
+    context.selectAll(".line").select('path').attr("d", contextLine); // Redraw context lines if context x axis domain changes on line show / hide  
+}
+
+var tooltip = focus.selectAll('.line')
+    .append("g") // Tooltip 
+    .attr("class", "tooltip")
+    .style("opacity", 0); 
+      
+tooltip.append("circle") // Tooltip circle 
+    .attr("cx", 0)
+    .attr("cy", 0)
+    .attr("r", 6)
+    .style("stroke", function(d, i) { return color(i); })
+    .style("fill", "none")
+    .style("stroke-width", "1px"); 
+
+/* 
+tooltip.append("rect") // Add background to tooltips  
+  .attr('width', 26)
+  .attr('height', 10)
+  .attr("transform", "translate(8,-8)")  
+  .style("stroke", 'none')
+  .style("fill", 'white')
+  .style("opacity", 0.6); 
+*/
+
+/*
+tooltip.append("text") //Tooltip text 
+    .attr("transform", "translate(10,0)")
+    .style('fill', function(d, i) { return color(i); })
+    .style("stroke-width", '1px');  
+*/   
+
+var verticalLine = focus.append('g')
+    .attr("class", "tooltipLine")
+    .style("opacity", 0); 
+
+verticalLine.append("path")
+    .attr('d', 'M 0, -10, 0, ' + height);   
+
+verticalLine.append("text") 
+    .attr("transform", "translate(10,-10)")
+    .style("stroke-width", '1px');  
+  
+var bisectDate = d3.bisector(function(d) { return d.date; }).left; 
+
+function mousemove() {
+    var xMouse = d3.mouse(this)[0]; 
+    var x0 = x.invert(xMouse); 
+  
+    var delta = []; 
+        focus.selectAll('.tooltip') // Find the closest points to a mouse pointer for each curve  
+            .each(function(v, j){
+                var l = v.length; 
+                var i = bisectDate(v, x0, 1, l-1);  
+                var d0 = v[i - 1]; 
+                var d1 = v[i]; 
+                var d = x0 - d0.date > d1.date - x0 ? d1 : d0;
+                delta[j] = d.date - x0; // difference between the closest point and a pointer 
+            }); 
+    var minDelta = d3.min(delta, Math.abs);     
+  
+    focus.selectAll('.tooltip') // For each curve 
+        .each(function(v, j){
+            if (minDelta == Math.abs(delta[j])) {
+                var l = v.length; 
+                var i = bisectDate(v, x0, 1, l-1);  
+                var d0 = v[i - 1]; 
+                var d1 = v[i]; 
+                var d = x0 - d0.date > d1.date - x0 ? d1 : d0; 
+                d3.select(this) // Move tooltip to the intersection
+                    .attr('transform', 'translate(' + x(d.date) + ', ' + y(d.value) + ')')
+                    .style('opacity', 1); 
+
+/*
+                var tooltipText = d.value; // Tooltip text
+                d3.select(this)
+                    .select('text')
+                    .text(tooltipText); 
+*/
+                d3.select('.tooltipLine') 
+                    .attr('transform', 'translate(' + x(d.date) + ', 0)')
+                    .style('opacity', 1);  
+                d3.select('.tooltipLine')
+                    .select('text')
+                    .text('Week of ' + d3.time.format("%d %b %Y")(d.date)); 
+                d3.select('.deviceValue'+j)
+                    .select('.value')
+                    .style('opacity', 1) // Legend values 
+                    .text(d.value);
+
+                if (((d.date < brush.extent()[0]) || (d.date > brush.extent()[1])) && !brush.empty()) { 
+                    d3.select('.tooltipLine')
+                        .style('opacity', 0);      
+                    d3.select(this)
+                        .style('opacity', 0);  
+                    d3.select('.deviceValue'+j)
+                        .select('.value')
+                        .style('opacity', 0);        
+                }; 
+            } else {
+                d3.select(this)
+                    .style('opacity', 0);  
+                d3.select('.deviceValue'+j)
+                    .select('.value')
+                    .style('opacity', 0);   
+            }
+        }
+    ); 
+} 
+
+function mouseenter() {
+    d3.selectAll('.tooltip').style('opacity', 1);
+    d3.selectAll('.tooltipLine').style('opacity', 1);
+    d3.selectAll('.deviceValue.show').style('opacity', 1);  
+}
+
+function mouseout() {
+    d3.selectAll('.tooltip').style('opacity', 0);
+    d3.selectAll('.tooltipLine').style('opacity', 0);  
+    d3.selectAll('.deviceValue').style('opacity', 0);     
+}
+
+}
+
+</script>
+<body> 
